@@ -39,6 +39,7 @@ flowchart LR
 
     %% CLUSTER
     subgraph KC["K3s · embedded etcd · Cilium"]
+        FLX["Flux controllers<br/>flux-system · GitRepository + Kustomization"]
         K1["k1 · .121<br/>control-plane · etcd"]
         K2["k2 · .122<br/>control-plane · etcd"]
         K3["k3 · .123<br/>control-plane · etcd"]
@@ -57,10 +58,12 @@ flowchart LR
     CL -->|"*.kung.dk"| DNSV
     DNSV --> TRV
 
-    %% GITOPS PATH
-    GH1 -->|"Flux pull (SSH)"| K1
-    GH2 -->|"Flux pull (SSH)"| K2
-    GH3 -->|"Flux pull (SSH)"| K3
+    %% GITOPS PATH — Flux (single controller in-cluster) pulls all repos,
+    %% reconciles through the API VIP. Not per-node pulls.
+    FLX -->|"git pull (SSH, deploy keys)"| GH1
+    FLX -->|"git pull (SSH, deploy keys)"| GH2
+    FLX -->|"git pull (SSH, deploy keys)"| GH3
+    FLX -->|"apply via API :6443"| VIP
 
     %% API FAILOVER
     VIP -.-> K1
@@ -83,7 +86,7 @@ flowchart LR
     classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
     classDef repo fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
 
-    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB,JMP box
+    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB,JMP,FLX box
     class GH1,GH2,GH3 repo
 
     style LAN fill:transparent,stroke:transparent
@@ -91,7 +94,6 @@ flowchart LR
     style API fill:transparent,stroke:transparent
     style KC fill:transparent,stroke:transparent
     style WL fill:transparent,stroke:transparent
-
     linkStyle default stroke:#7895b1,stroke-width:1.2px
 ```
 
@@ -125,8 +127,10 @@ node SSH — goes through a dedicated jump host:
 | [`k3s-deployments`](https://github.com/s3-2020/k3s-deployments) | Applications | Flux-synced workloads: Rancher, Grafana, Prometheus, Hubble UI, blocky, WordPress, status page |
 | [`kube-labs`](https://github.com/s3-2020/kube-labs) | Training | Structured network lab in `lab-*` namespaces: DNS → Services → NetworkPolicy → Gateway → Cilium → chaos katas |
 
-Flux in the cluster pulls all three over SSH with read-only deploy keys.
-Everything user-managed lives in Git: `GitHub → Flux → Kubernetes API`.
+Flux runs **in-cluster** (one installation in the `flux-system` namespace) and
+pulls all three repos over SSH with read-only deploy keys. Reconciliation goes
+through the API VIP — no node pulls on its own. Everything user-managed lives
+in Git: `GitHub → Flux → Kubernetes API`.
 
 ## What it runs
 
