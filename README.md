@@ -55,17 +55,17 @@ flowchart LR
     CL -->|"SSH only"| JMP
     JMP -->|"kubectl :6443"| VIP
     CL -->|"*.kung.dk"| DNSV
-    DNSV -->|"resolves to .60"| TRV
+    DNSV --> TRV
 
     %% GITOPS PATH
-    GH1 -->|"Flux pull · SSH · interval 1m"| K1
-    GH2 -->|"Flux pull · deploy key"| K2
-    GH3 -->|"lab kustomization · team=lab"| K3
+    GH1 -->|"Flux pull (SSH)"| K1
+    GH2 -->|"Flux pull (SSH)"| K2
+    GH3 -->|"Flux pull (SSH)"| K3
 
     %% API FAILOVER
-    VIP -.->|"VIP owner answers"| K1
-    VIP -.->|"failover"| K2
-    VIP -.->|"failover"| K3
+    VIP -.-> K1
+    VIP -.-> K2
+    VIP -.-> K3
 
     %% INGRESS TO NODES
     TRV --> K1
