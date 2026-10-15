@@ -16,84 +16,36 @@ reproducibility.
 
 ```mermaid
 flowchart LR
-
-    %% CLIENTS AND DNS
-    subgraph LAN["LAN · 10.22.10.0/25"]
-        CL["Workstations<br/>no cluster credentials"]
-        JMP["Jump host · jmp.kung.dk<br/>10.22.10.120 · UFW hardened<br/>kubectl · k9s · nvim · tmux"]
-        DNSV["UDM DNS → blocky<br/>*.kung.dk → 10.22.50.60"]
-        NAS["TrueNAS<br/>10.22.10.50 · iSCSI"]
+    subgraph LAN["LAN clients"]
+        C["Workstations / kubectl / browser"]
+        JMP["Jump host · jmp.kung.dk<br/>kubectl · k9s · nvim · tmux"]
     end
 
-    %% GITOPS SOURCE
-    subgraph REPOS["Git repositories"]
-        GH1[("s3-2020/k3s-gitops<br/>platform · private")]
-        GH2[("s3-2020/k3s-deployments<br/>applications")]
-        GH3[("s3-2020/kube-labs<br/>training lab")]
+    subgraph GITOPS["GitOps"]
+        GH[("GitHub<br/>s3-2020/k3s-gitops")] --> FL["Flux"]
     end
 
-    %% API HA
-    subgraph API["API HA"]
-        VIP["Keepalived VIP<br/>10.22.50.120:6443"]
+    subgraph K3S["K3s cluster · Embedded etcd"]
+        TR["Traefik Gateway API<br/>10.22.50.60 · Cilium L2"]
+        VIP["Keepalived VIP 10.22.50.120<br/>:6443 → k3s on the VIP owner"]
+        K1["k1<br/>10.22.50.121"]
+        K2["k2<br/>10.22.50.122"]
+        K3["k3<br/>10.22.50.123"]
+        TR --> K1 & K2 & K3
+        VIP -.->|"VIP owner answers"| K1
+        VIP -.->|"failover"| K2 & K3
     end
 
-    %% CLUSTER
-    subgraph KC["K3s · embedded etcd · Cilium"]
-        FLX["Flux controllers<br/>flux-system · GitRepository + Kustomization"]
-        K1["k1 · .121<br/>control-plane · etcd"]
-        K2["k2 · .122<br/>control-plane · etcd"]
-        K3["k3 · .123<br/>control-plane · etcd"]
-        TRV["Traefik Gateway<br/>Gateway API · 10.22.50.60"]
-    end
+    C -->|"SSH only"| JMP
+    JMP -->|"API :6443"| VIP
+    C -->|"https://*.kung.dk"| TR
+    FL -->|"reconcile (SSH)"| K1 & K2 & K3
 
-    %% WORKLOADS
-    subgraph WL["Workloads"]
-        SVC["Services<br/>Rancher · Grafana · Prometheus<br/>Hubble · Flux UI · blocky · WordPress"]
-        LAB["kube-labs<br/>lab-* namespaces · team=lab"]
-    end
-
-    %% CLIENT PATH
-    CL -->|"SSH only"| JMP
-    JMP -->|"kubectl :6443"| VIP
-    CL -->|"*.kung.dk"| DNSV
-    DNSV --> TRV
-
-    %% GITOPS PATH — Flux (single controller in-cluster) pulls all repos,
-    %% reconciles through the API VIP. Not per-node pulls.
-    FLX -->|"git pull (SSH, deploy keys)"| GH1
-    FLX -->|"git pull (SSH, deploy keys)"| GH2
-    FLX -->|"git pull (SSH, deploy keys)"| GH3
-    FLX -->|"apply via API :6443"| VIP
-
-    %% API FAILOVER
-    VIP -.-> K1
-    VIP -.-> K2
-    VIP -.-> K3
-
-    %% INGRESS TO NODES
-    TRV --> K1
-    TRV --> K2
-    TRV --> K3
-
-    %% STORAGE
-    K1 -->|"iSCSI"| NAS
-
-    %% WORKLOAD MAPPING
-    K1 ~~~ SVC
-    K2 ~~~ LAB
-
-    %% STYLING
     classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
-    classDef repo fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
-
-    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB,JMP,FLX box
-    class GH1,GH2,GH3 repo
-
+    class C,VIP,TR,GH,FL,K1,K2,K3,JMP box
     style LAN fill:transparent,stroke:transparent
-    style REPOS fill:transparent,stroke:transparent
-    style API fill:transparent,stroke:transparent
-    style KC fill:transparent,stroke:transparent
-    style WL fill:transparent,stroke:transparent
+    style GITOPS fill:transparent,stroke:transparent
+    style K3S fill:transparent,stroke:transparent
     linkStyle default stroke:#7895b1,stroke-width:1.2px
 ```
 
