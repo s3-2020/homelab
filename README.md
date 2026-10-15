@@ -1,111 +1,129 @@
-# Homelab — multi-node K3s cluster, driven by GitOps
+# Homelab — a production-minded K3s platform at home
 
 Hi, I'm **Jess Steen Hansen** — data technician (IT infrastructure) student at
 team.blue, finishing January 2027. Cisco CCNA certified, currently studying
 for CCNP.
 
-This repository documents my home lab: a small but production-minded
-environment I run to stay sharp and to test things before they touch real
-workloads. It is intentionally small and sharp — same principles as
-professional operations, smaller scale.
+This is my home platform: three bare-metal nodes running K3s with an HA
+control-plane, Cilium networking and full GitOps. It hosts my self-hosted
+services *and* a structured training lab (`kube-labs`) that runs safely
+alongside production in labelled namespaces.
 
-## The stack
+It is intentionally small — but it follows the same principles as
+professional operations: declared state, tested recovery, observability and
+reproducibility.
+
+## Platform overview
 
 ```mermaid
 flowchart LR
 
-    %% GITOPS
-    subgraph GITOPS["GitOps"]
-
-        GH[("GitHub<br/>s3-2020/k3s-deployments")]
-        FL["Flux"]
+    %% CLIENTS AND DNS
+    subgraph LAN["LAN · 10.22.10.0/25"]
+        CL["Workstations<br/>kubectl · browser"]
+        DNSV["UDM DNS → blocky<br/>*.kung.dk → 10.22.50.60"]
+        NAS["TrueNAS<br/>10.22.10.50 · iSCSI"]
     end
 
-    %% K3S CLUSTER
-    subgraph K3S["K3s cluster · 3 bare-metal nodes"]
-
-        TR["Traefik ingress<br/>routing · TLS termination"]
-
-        K1["node1<br/>K3s server"]
-        K2["node2<br/>K3s server"]
-        K3["node3<br/>K3s server"]
-
-        TR --> K1
-        TR --> K2
-        TR --> K3
-
-        K1 ~~~ K2
-        K2 ~~~ K3
+    %% GITOPS SOURCE
+    subgraph REPOS["Git repositories"]
+        GH1[("s3-2020/k3s-gitops<br/>platform · private")]
+        GH2[("s3-2020/k3s-deployments<br/>applications")]
+        GH3[("s3-2020/kube-labs<br/>training lab")]
     end
 
-    %% CLUSTER SERVICES
-    subgraph SVC["Cluster services"]
-
-        CM["cert-manager<br/>Let's Encrypt"]
-        MON["Prometheus + Grafana<br/>metrics · dashboards"]
-        APP["Self-hosted services<br/>Git · dashboards · more"]
+    %% API HA
+    subgraph API["API HA"]
+        VIP["Keepalived VIP<br/>10.22.50.120:6443"]
     end
 
-    %% FLUX TO CLUSTER
-    FL -->|"reconcile (Git sync)"| K1
-    FL -->|"reconcile (Git sync)"| K2
-    FL -->|"reconcile (Git sync)"| K3
+    %% CLUSTER
+    subgraph KC["K3s · embedded etcd · Cilium"]
+        K1["k1 · .121<br/>control-plane · etcd"]
+        K2["k2 · .122<br/>control-plane · etcd"]
+        K3["k3 · .123<br/>control-plane · etcd"]
+        TRV["Traefik Gateway<br/>Gateway API · 10.22.50.60"]
+    end
 
-    %% SERVICES
-    K1 --> CM
-    K2 --> MON
-    K3 --> APP
+    %% WORKLOADS
+    subgraph WL["Workloads"]
+        SVC["Services<br/>Rancher · Grafana · Prometheus<br/>Hubble · Flux UI · blocky · WordPress"]
+        LAB["kube-labs<br/>lab-* namespaces · team=lab"]
+    end
 
-    %% LAYOUT HELPERS
-    GH ~~~ FL
-    TR ~~~ CM
+    %% CLIENT PATH
+    CL -->|"kubectl :6443"| VIP
+    CL -->|"*.kung.dk"| DNSV
+    DNSV -->|"resolves to .60"| TRV
+
+    %% GITOPS PATH
+    GH1 -->|"Flux pull · SSH · interval 1m"| K1
+    GH2 -->|"Flux pull · deploy key"| K2
+    GH3 -->|"lab kustomization · team=lab"| K3
+
+    %% API FAILOVER
+    VIP -.->|"VIP owner answers"| K1
+    VIP -.->|"failover"| K2
+    VIP -.->|"failover"| K3
+
+    %% INGRESS TO NODES
+    TRV --> K1
+    TRV --> K2
+    TRV --> K3
+
+    %% STORAGE
+    K1 -->|"iSCSI"| NAS
+
+    %% WORKLOAD MAPPING
+    K1 ~~~ SVC
+    K2 ~~~ LAB
 
     %% STYLING
     classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
-    classDef git fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
+    classDef repo fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
 
-    class TR,K1,K2,K3,CM,MON,APP box
-    class GH,FL git
+    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB box
+    class GH1,GH2,GH3 repo
 
-    style GITOPS fill:transparent,stroke:transparent
-    style K3S fill:transparent,stroke:transparent
-    style SVC fill:transparent,stroke:transparent
+    style LAN fill:transparent,stroke:transparent
+    style REPOS fill:transparent,stroke:transparent
+    style API fill:transparent,stroke:transparent
+    style KC fill:transparent,stroke:transparent
+    style WL fill:transparent,stroke:transparent
 
     linkStyle default stroke:#7895b1,stroke-width:1.2px
 ```
 
-Three separate bare-metal servers run the K3s cluster — real nodes, not VMs on
-a single hypervisor. Networking between nodes, VLANs and firewalling are
-handled at the network layer (Cisco, CCNA level).
+Three separate bare-metal servers run the cluster — real nodes with embedded
+etcd (quorum = 2), not VMs on a single hypervisor. The Kubernetes API is
+reached through a Keepalived VIP that floats between the nodes. Cilium
+replaces kube-proxy and announces the Traefik Gateway IP on the LAN via L2.
 
-Storage: btrfs / ext4 / ZFS, with tested backup routines — snapshots are not
-backups, so both exist.
+## The GitOps split
 
-## What runs where
-
-| Layer | Technology | Purpose |
+| Repo | Layer | Content |
 |---|---|---|
-| Compute | 3 bare-metal servers | K3s cluster nodes |
-| Cluster | K3s | Kubernetes the light way |
-| Config management | Flux CD | Everything as code, synced from Git |
-| Ingress | Traefik | Routing, TLS termination |
-| Certificates | cert-manager | Automated Let's Encrypt |
-| Monitoring | Prometheus + Grafana | Metrics, dashboards, alerts |
-| Network | Cisco (CCNA) | VLANs, routing, firewalling |
-| Storage | btrfs / ZFS | Node storage, tested backups |
+| [`k3s-gitops`](https://github.com/s3-2020/k3s-gitops) *(private)* | Platform | Cluster bootstrap, Traefik Gateway API, cert-manager, PKI, Cilium, TrueNAS CSI, monitoring stack, lab wiring |
+| [`k3s-deployments`](https://github.com/s3-2020/k3s-deployments) | Applications | Flux-synced workloads: Rancher, Grafana, Prometheus, Hubble UI, blocky, WordPress, status page |
+| [`kube-labs`](https://github.com/s3-2020/kube-labs) | Training | Structured network lab in `lab-*` namespaces: DNS → Services → NetworkPolicy → Gateway → Cilium → chaos katas |
 
-## The repositories
+Flux in the cluster pulls all three over SSH with read-only deploy keys.
+Everything user-managed lives in Git: `GitHub → Flux → Kubernetes API`.
 
-| Repo | What it shows |
-|---|---|
-| [`k3s-deployments`](https://github.com/s3-2020/k3s-deployments) | GitOps application layer — Flux-synced workloads (Rancher, Grafana, Hubble, dashboards) |
-| [`kube-labs`](https://github.com/s3-2020/kube-labs) | A structured network lab: DNS → Services → NetworkPolicy → Gateway → Cilium → chaos, with exercises and solutions |
-| `k3s-gitops` *(private)* | Cluster bootstrap and infrastructure: Traefik, cert-manager, PKI, TrueNAS CSI, monitoring stack |
+## What it runs
+
+- **HA control-plane** — embedded etcd, Keepalived VIP, quorum 2 of 3
+- **Cilium** — kube-proxy replacement, VXLAN, L2 load-balancer announcements
+- **Gateway API ingress** — Traefik on a shared gateway IP, internal CA wildcard TLS
+- **Storage** — TrueNAS iSCSI via CSI; node storage on btrfs/ZFS with tested backups
+- **Observability** — Prometheus + Grafana + Hubble flows
+- **Self-hosted services** — Rancher, dashboards, DNS (blocky), WordPress sites
+- **kube-labs** — chaos katas and network exercises running beside production, fenced in `lab-*` namespaces
 
 ## Why I run it
 
-Because the best way to learn operations is to operate. When something
-breaks at 10 PM, there is no on-call — but there is a very instructive
+Because the best way to learn operations is to operate. When something breaks
+at 10 PM, there is no on-call — but there is a very instructive
 troubleshooting session. What I learn here shows up at work the next day.
 
 ---
