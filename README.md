@@ -22,7 +22,8 @@ flowchart LR
     end
 
     subgraph GITOPS["GitOps"]
-        GH[("GitHub<br/>s3-2020/k3s-gitops")] --> FL["Flux"]
+        GH[("GitHub<br/>s3-2020/k3s-gitops")]
+        FL["Flux<br/>flux-system · in-cluster"]
     end
 
     subgraph K3S["K3s cluster · Embedded etcd"]
@@ -39,7 +40,8 @@ flowchart LR
     C -->|"SSH only"| JMP
     JMP -->|"API :6443"| VIP
     C -->|"https://*.kung.dk"| TR
-    FL -->|"reconcile (SSH)"| K1 & K2 & K3
+    GH -->|"git pull (SSH deploy keys)"| FL
+    FL -->|"apply via API"| K1 & K2 & K3
 
     classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
     class C,VIP,TR,GH,FL,K1,K2,K3,JMP box
@@ -79,10 +81,10 @@ node SSH — goes through a dedicated jump host:
 | [`k3s-deployments`](https://github.com/s3-2020/k3s-deployments) | Applications | Flux-synced workloads: Rancher, Grafana, Prometheus, Hubble UI, blocky, WordPress, status page |
 | [`kube-labs`](https://github.com/s3-2020/kube-labs) | Training | Structured network lab in `lab-*` namespaces: DNS → Services → NetworkPolicy → Gateway → Cilium → chaos katas |
 
-Flux runs **in-cluster** (one installation in the `flux-system` namespace) and
-pulls all three repos over SSH with read-only deploy keys. Reconciliation goes
-through the API VIP — no node pulls on its own. Everything user-managed lives
-in Git: `GitHub → Flux → Kubernetes API`.
+Flux runs **in-cluster** (one installation in the `flux-system` namespace).
+It pulls all three repos over SSH with read-only deploy keys, then applies
+through the Kubernetes API — reconciliation never SSHes to the nodes.
+Everything user-managed lives in Git: `GitHub → Flux → Kubernetes API`.
 
 ## What it runs
 
