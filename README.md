@@ -19,7 +19,8 @@ flowchart LR
 
     %% CLIENTS AND DNS
     subgraph LAN["LAN · 10.22.10.0/25"]
-        CL["Workstations<br/>kubectl · browser"]
+        CL["Workstations<br/>no cluster credentials"]
+        JMP["Jump host · jmp.kung.dk<br/>10.22.10.120 · UFW hardened<br/>kubectl · k9s · nvim · tmux"]
         DNSV["UDM DNS → blocky<br/>*.kung.dk → 10.22.50.60"]
         NAS["TrueNAS<br/>10.22.10.50 · iSCSI"]
     end
@@ -51,7 +52,8 @@ flowchart LR
     end
 
     %% CLIENT PATH
-    CL -->|"kubectl :6443"| VIP
+    CL -->|"SSH only"| JMP
+    JMP -->|"kubectl :6443"| VIP
     CL -->|"*.kung.dk"| DNSV
     DNSV -->|"resolves to .60"| TRV
 
@@ -81,7 +83,7 @@ flowchart LR
     classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
     classDef repo fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
 
-    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB box
+    class CL,DNSV,NAS,VIP,K1,K2,K3,TRV,SVC,LAB,JMP box
     class GH1,GH2,GH3 repo
 
     style LAN fill:transparent,stroke:transparent
@@ -97,6 +99,19 @@ Three separate bare-metal servers run the cluster — real nodes with embedded
 etcd (quorum = 2), not VMs on a single hypervisor. The Kubernetes API is
 reached through a Keepalived VIP that floats between the nodes. Cilium
 replaces kube-proxy and announces the Traefik Gateway IP on the LAN via L2.
+
+## Single entry point: the jumphost
+
+No laptop holds cluster credentials. All administration — `kubectl`, `k9s`,
+node SSH — goes through a dedicated jump host:
+
+- **`jmp.kung.dk` (10.22.10.120)** — Ubuntu 26.04, UFW `default deny incoming`,
+  SSH allowed only from the LAN, hardened `sshd_config` (no root login)
+- kubeconfig on the jump points at the API VIP, never at a single node
+- Workstations reach the cluster **only** via SSH to the jump — so
+  credentials, audit trail and tooling live in one controlled place
+- Tooling on the jump: kubectl, k9s, neovim (with YAML/Kubernetes
+  configuration — see [`vim/`](vim/)), tmux, lazygit
 
 ## The GitOps split
 
