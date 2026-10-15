@@ -12,23 +12,74 @@ professional operations, smaller scale.
 ## The stack
 
 ```mermaid
-flowchart TD
-    subgraph Nodes[3 bare-metal servers — K3s cluster]
-        K[K3s cluster<br>control-plane + workers]
+flowchart LR
+
+    %% GITOPS
+    subgraph GITOPS["GitOps"]
+
+        GH[("GitHub<br/>s3-2020/k3s-deployments")]
+        FL["Flux"]
     end
-    K --> F[Flux CD<br>GitOps reconciliation]
-    K --> T[Traefik<br>ingress & routing]
-    K --> C[cert-manager<br>automated TLS — Let's Encrypt]
-    K --> M[Prometheus + Grafana<br>monitoring]
-    K --> S[Self-hosted services<br>Git, dashboards, and more]
+
+    %% K3S CLUSTER
+    subgraph K3S["K3s cluster · 3 bare-metal nodes"]
+
+        TR["Traefik ingress<br/>routing · TLS termination"]
+
+        K1["node1<br/>K3s server"]
+        K2["node2<br/>K3s server"]
+        K3["node3<br/>K3s server"]
+
+        TR --> K1
+        TR --> K2
+        TR --> K3
+
+        K1 ~~~ K2
+        K2 ~~~ K3
+    end
+
+    %% CLUSTER SERVICES
+    subgraph SVC["Cluster services"]
+
+        CM["cert-manager<br/>Let's Encrypt"]
+        MON["Prometheus + Grafana<br/>metrics · dashboards"]
+        APP["Self-hosted services<br/>Git · dashboards · more"]
+    end
+
+    %% FLUX TO CLUSTER
+    FL -->|"reconcile (Git sync)"| K1
+    FL -->|"reconcile (Git sync)"| K2
+    FL -->|"reconcile (Git sync)"| K3
+
+    %% SERVICES
+    K1 --> CM
+    K2 --> MON
+    K3 --> APP
+
+    %% LAYOUT HELPERS
+    GH ~~~ FL
+    TR ~~~ CM
+
+    %% STYLING
+    classDef box fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
+    classDef git fill:#e8f4ff,stroke:#68aef5,color:#064b8e,stroke-width:1.2px
+
+    class TR,K1,K2,K3,CM,MON,APP box
+    class GH,FL git
+
+    style GITOPS fill:transparent,stroke:transparent
+    style K3S fill:transparent,stroke:transparent
+    style SVC fill:transparent,stroke:transparent
+
+    linkStyle default stroke:#7895b1,stroke-width:1.2px
 ```
 
-Three separate physical servers run the K3s cluster — real nodes, not VMs on a
-single hypervisor. Networking between nodes, VLANs and firewalling are handled
-at the network layer (Cisco, CCNA level).
+Three separate bare-metal servers run the K3s cluster — real nodes, not VMs on
+a single hypervisor. Networking between nodes, VLANs and firewalling are
+handled at the network layer (Cisco, CCNA level).
 
-Storage: btrfs / ext4 / ZFS, with tested backup
-routines — snapshots are not backups, so both exist.
+Storage: btrfs / ext4 / ZFS, with tested backup routines — snapshots are not
+backups, so both exist.
 
 ## What runs where
 
