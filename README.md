@@ -98,7 +98,11 @@ flowchart LR
 Three separate bare-metal servers run the cluster — real nodes with embedded
 etcd (quorum = 2), not VMs on a single hypervisor. The Kubernetes API is
 reached through a Keepalived VIP that floats between the nodes. Cilium
-replaces kube-proxy and announces the Traefik Gateway IP on the LAN via L2.
+replaces kube-proxy and provides LoadBalancer IPs without any external LB
+appliance: LB-IPAM allocates from a pool, and a `CiliumL2AnnouncementPolicy`
+makes the lease-holding node answer ARP for the gateway IP on the LAN — so
+`10.22.50.60` always lands on whoever owns the lease (failover measured at
+~2.8 s).
 
 ## Single entry point: the jumphost
 
@@ -127,7 +131,7 @@ Everything user-managed lives in Git: `GitHub → Flux → Kubernetes API`.
 ## What it runs
 
 - **HA control-plane** — embedded etcd, Keepalived VIP, quorum 2 of 3
-- **Cilium** — kube-proxy replacement, VXLAN, L2 load-balancer announcements
+- **Cilium** — kube-proxy replacement, VXLAN, LB-IPAM + L2 announcements (ARP failover ~2.8 s)
 - **Gateway API ingress** — Traefik on a shared gateway IP, internal CA wildcard TLS
 - **Storage** — TrueNAS iSCSI via CSI; node storage on btrfs/ZFS with tested backups
 - **Observability** — Prometheus + Grafana + Hubble flows
