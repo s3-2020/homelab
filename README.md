@@ -1,8 +1,7 @@
 # Homelab — a production-minded K3s platform at home
 
-Hi, I'm **Jess Steen Hansen** — data technician (IT infrastructure) student at
-team.blue, finishing January 2027. Cisco CCNA certified, currently studying
-for CCNP.
+Data technician (IT infrastructure) student at team.blue, finishing January
+2027. Cisco CCNA certified, currently studying for CCNP.
 
 This is my home platform: three bare-metal nodes running K3s with an HA
 control-plane, Cilium networking and full GitOps. It hosts my self-hosted
